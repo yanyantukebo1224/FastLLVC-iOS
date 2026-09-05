@@ -60,23 +60,24 @@ jobs:
         working-directory: ios
         run: |
           mkdir -p dist
+          DIST_DIR="$(pwd)/dist"
           
-          # 1. Package Real Device IPA
+          # 1. Package Real Device IPA (Native ARM64 for iOS 17 - iOS 27+)
           DEVICE_APP=$(find build_device -name "FastLLVC.app" -type d | head -n 1)
           if [ -n "$DEVICE_APP" ]; then
-            echo "Found Device App: $DEVICE_APP"
+            echo "Packaging Real Device App: $DEVICE_APP"
             mkdir -p ipa_root/Payload
             cp -R "$DEVICE_APP" ipa_root/Payload/
-            (cd ipa_root && zip -r "../../dist/FastLLVC.ipa" Payload)
+            (cd ipa_root && zip -r "${DIST_DIR}/FastLLVC.ipa" Payload)
             rm -rf ipa_root
           fi
 
-          # 2. Package Simulator App
+          # 2. Package Simulator App (for Xcode / Simulators)
           SIM_APP=$(find build_sim -name "FastLLVC.app" -type d | head -n 1)
           if [ -n "$SIM_APP" ]; then
-            echo "Found Simulator App: $SIM_APP"
+            echo "Packaging Simulator App: $SIM_APP"
             sim_dir=$(dirname "$SIM_APP")
-            (cd "$sim_dir" && zip -r "../../dist/FastLLVC-Simulator.zip" FastLLVC.app)
+            (cd "$sim_dir" && zip -r "${DIST_DIR}/FastLLVC-Simulator.zip" FastLLVC.app)
           fi
 
       - name: Upload Artifacts
@@ -93,4 +94,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload v1.0.0 ios/dist/FastLLVC.ipa ios/dist/FastLLVC-Simulator.zip --clobber || \
-          gh release create v1.0.0 ios/dist/FastLLVC.ipa ios/dist/FastLLVC-Simulator.zip --title "Fast-LLVC iOS v1.0.0" --notes "Fast-LLVC for iOS (iOS 17 ~ iOS 27+ Real Device ARM64 & Simulator)" || true
+          gh release create v1.0.0 ios/dist/FastLLVC.ipa ios/dist/FastLLVC-Simulator.zip --title "Fast-LLVC iOS v1.0.0" --notes "Fast-LLVC for iOS (iOS 17 ~ iOS 27+ Real Device Native ARM64 & Simulator)" || true

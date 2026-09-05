@@ -21,11 +21,6 @@ try:
 except ImportError:
     tk = None
 
-try:
-    import coremltools as ct
-except ImportError:
-    ct = None
-
 from infer_adapter import load_model_with_adapter
 from model import Net
 
@@ -94,9 +89,6 @@ def convert_pth_to_ios(
                 config_path = c
                 break
 
-    if not config_path or not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found. Please provide config.json.")
-
     if progress_callback:
         progress_callback(30, "Merging adapters and preparing neural layers...")
 
@@ -110,7 +102,7 @@ def convert_pth_to_ios(
     wrapper.eval()
 
     if progress_callback:
-        progress_callback(50, "Tracing neural graph for Apple Neural Engine...")
+        progress_callback(50, "Tracing neural graph for mobile acceleration...")
 
     enc_buf, dec_buf, out_buf = model.init_buffers(1, torch.device("cpu"))
     if hasattr(model, 'convnet_pre'):
@@ -139,9 +131,20 @@ def convert_pth_to_ios(
     traced_model.save(ts_path)
     print(f"[+] Saved TorchScript model to: {ts_path}")
 
-    # CoreML Export if coremltools available
+    # Also save raw mobile .pth
+    mobile_pth_path = os.path.join(output_dir, f"{base_name}.pt")
+    torch.save({
+        'model': model.state_dict(),
+        'sr': sr,
+        'chunk_len': chunk_len,
+        'config': config_path
+    }, mobile_pth_path)
+
+    # CoreML Export Attempt (if on macOS or full coremltools is working)
     mlpackage_path = os.path.join(output_dir, f"{base_name}.mlpackage")
-    if ct is not None:
+    coreml_success = False
+    try:
+        import coremltools as ct
         if progress_callback:
             progress_callback(75, "Compiling Core ML (.mlpackage)...")
         
@@ -164,50 +167,90 @@ def convert_pth_to_ios(
         mlmodel.short_description = f"Fast-LLVC model: {base_name}"
         mlmodel.save(mlpackage_path)
         print(f"[+] Saved Core ML model to: {mlpackage_path}")
-        result_file = mlpackage_path
-    else:
-        result_file = ts_path
+        coreml_success = True
+    except Exception as ex:
+        print(f"[*] CoreML conversion skipped/unavailable on Windows: {ex}")
+        print(f"[+] TorchScript model ready for iOS importing: {ts_path}")
 
-    # Save JSON metadata for easy mobile importing
+    # Save JSON metadata for mobile AirTransfer
     meta_path = os.path.join(output_dir, f"{base_name}.json")
     meta_info = {
         "model_name": base_name,
         "sample_rate": sr,
         "chunk_length": chunk_len,
         "latency_ms": (chunk_len / sr) * 1000.0,
-        "has_coreml": (ct is not None),
+        "has_coreml": coreml_success,
         "files": {
             "torchscript": os.path.basename(ts_path),
-            "coreml": os.path.basename(mlpackage_path) if ct is not None else None
+            "model_pt": os.path.basename(mobile_pth_path),
+            "coreml": os.path.basename(mlpackage_path) if coreml_success else None
         }
     }
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta_info, f, indent=2)
 
+    # Generate HTML Index for Mobile Web Browser / AirTransfer
+    html_path = os.path.join(output_dir, "index.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast-LLVC AirTransfer</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0D1117; color: #E6EDF3; padding: 20px; }}
+        .card {{ background: #161B22; border: 1px solid #30363D; border-radius: 12px; padding: 16px; margin-bottom: 16px; }}
+        h1 {{ font-size: 20px; color: #58A6FF; }}
+        a.btn {{ display: block; background: #238636; color: white; text-align: center; text-decoration: none; padding: 12px; border-radius: 8px; font-weight: bold; margin-top: 8px; }}
+        .file-item {{ margin: 8px 0; }}
+    </style>
+</head>
+<body>
+    <h1>🚀 Fast-LLVC Model AirTransfer</h1>
+    <div class="card">
+        <h3>Model: {base_name}</h3>
+        <p>Sample Rate: {sr} Hz | Latency: {(chunk_len / sr) * 1000.0:.1f} ms</p>
+        <div class="file-item">
+            <a class="btn" href="{os.path.basename(ts_path)}">📲 Download {os.path.basename(ts_path)}</a>
+        </div>
+        <div class="file-item">
+            <a class="btn" style="background:#1F6FEB;" href="{os.path.basename(mobile_pth_path)}">📦 Download {os.path.basename(mobile_pth_path)}</a>
+        </div>
+    </div>
+</body>
+</html>""")
+
     if progress_callback:
-        progress_callback(100, f"Done! Saved to {output_dir}")
+        progress_callback(100, f"Done! Model ready: {base_name}")
 
-    return result_file, meta_path
+    return (mlpackage_path if coreml_success else ts_path), meta_path
 
 
-def start_airtransfer_server(serve_dir: str, port: int = 8080):
-    os.chdir(serve_dir)
-    handler = http.server.SimpleHTTPRequestHandler
-    httpd = socketserver.TCPServer(("", port), handler)
+def start_airtransfer_server(serve_dir: str = "ios_models", port: int = 8080):
+    os.makedirs(serve_dir, exist_ok=True)
     local_ip = get_local_ip()
-    print(f"\n" + "=" * 60)
-    print(f"🚀 Fast-LLVC Wi-Fi AirTransfer Server Running!")
-    print(f"📲 On your iPhone / iPad, open Safari or FastLLVC app and access:")
-    print(f"👉 http://{local_ip}:{port}")
-    print("=" * 60 + "\n")
-    httpd.serve_forever()
+    
+    class CustomHTTPHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=serve_dir, **kwargs)
+
+    try:
+        httpd = socketserver.TCPServer(("", port), CustomHTTPHandler)
+        print(f"\n" + "=" * 60)
+        print(f"🚀 Fast-LLVC Wi-Fi AirTransfer Server Running!")
+        print(f"📲 On your iPhone / iPad, open Safari or FastLLVC app and visit:")
+        print(f"👉 http://{local_ip}:{port}")
+        print("=" * 60 + "\n")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"[!] Server error: {e}")
 
 
 class ConverterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Fast-LLVC ⚡ .pth to iOS CoreML Converter")
-        self.root.geometry("620x460")
+        self.root.geometry("640x480")
         self.root.resizable(False, False)
 
         style = ttk.Style()
@@ -217,9 +260,9 @@ class ConverterGUI:
         header_frame = tk.Frame(root, bg="#1E222D", height=65)
         header_frame.pack(fill=tk.X)
         
-        lbl_title = tk.Label(header_frame, text="Fast-LLVC: .pth → iOS CoreML Converter", font=("Arial", 14, "bold"), fg="#FFFFFF", bg="#1E222D")
+        lbl_title = tk.Label(header_frame, text="Fast-LLVC: .pth → iOS Mobile Converter", font=("Arial", 14, "bold"), fg="#FFFFFF", bg="#1E222D")
         lbl_title.pack(pady=8)
-        lbl_sub = tk.Label(header_frame, text="Convert PyTorch checkpoints & send wirelessly to iPhone/iPad", font=("Arial", 9), fg="#9AA0A6", bg="#1E222D")
+        lbl_sub = tk.Label(header_frame, text="Convert PyTorch checkpoints and transfer wirelessly to iPhone / iPad", font=("Arial", 9), fg="#9AA0A6", bg="#1E222D")
         lbl_sub.pack()
 
         main_frame = tk.Frame(root, padx=20, pady=15)
@@ -227,16 +270,16 @@ class ConverterGUI:
 
         # 1. Model Selection
         tk.Label(main_frame, text="1. Select .pth Model Checkpoint:", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(5, 2))
-        self.pth_var = tk.StringVar(value="llvc_models/models/checkpoints/llvc/G_500000.pth")
-        entry_pth = ttk.Entry(main_frame, textvariable=self.pth_var, width=50)
+        self.pth_var = tk.StringVar(value="my_adapter/zundamon(sin).pth")
+        entry_pth = ttk.Entry(main_frame, textvariable=self.pth_var, width=52)
         entry_pth.grid(row=1, column=0, padx=(0, 10), pady=2)
         btn_browse_pth = ttk.Button(main_frame, text="Browse...", command=self.browse_pth)
         btn_browse_pth.grid(row=1, column=1)
 
         # 2. Config Selection
-        tk.Label(main_frame, text="2. Select config.json (Optional / Auto-detect):", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky=tk.W, pady=(10, 2))
+        tk.Label(main_frame, text="2. Select config.json (Auto-detected if blank):", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky=tk.W, pady=(10, 2))
         self.cfg_var = tk.StringVar(value="experiments/llvc/config.json")
-        entry_cfg = ttk.Entry(main_frame, textvariable=self.cfg_var, width=50)
+        entry_cfg = ttk.Entry(main_frame, textvariable=self.cfg_var, width=52)
         entry_cfg.grid(row=3, column=0, padx=(0, 10), pady=2)
         btn_browse_cfg = ttk.Button(main_frame, text="Browse...", command=self.browse_cfg)
         btn_browse_cfg.grid(row=3, column=1)
@@ -244,7 +287,7 @@ class ConverterGUI:
         # 3. Optional Adapter Selection
         tk.Label(main_frame, text="3. Target Voice Adapter .pth (Optional):", font=("Arial", 10, "bold")).grid(row=4, column=0, sticky=tk.W, pady=(10, 2))
         self.adapter_var = tk.StringVar(value="")
-        entry_adapter = ttk.Entry(main_frame, textvariable=self.adapter_var, width=50)
+        entry_adapter = ttk.Entry(main_frame, textvariable=self.adapter_var, width=52)
         entry_adapter.grid(row=5, column=0, padx=(0, 10), pady=2)
         btn_browse_adapter = ttk.Button(main_frame, text="Browse...", command=self.browse_adapter)
         btn_browse_adapter.grid(row=5, column=1)
@@ -264,7 +307,7 @@ class ConverterGUI:
 
         self.btn_convert = tk.Button(
             btn_frame,
-            text="⚡ Convert to iOS CoreML Model",
+            text="⚡ Convert for iOS",
             font=("Arial", 11, "bold"),
             bg="#007AFF",
             fg="white",
@@ -318,6 +361,8 @@ class ConverterGUI:
         threading.Thread(target=self._convert_thread, daemon=True).start()
 
     def _convert_thread(self):
+        err_msg = None
+        out_file = None
         try:
             out_file, meta = convert_pth_to_ios(
                 self.pth_var.get(),
@@ -326,11 +371,21 @@ class ConverterGUI:
                 output_dir="ios_models",
                 progress_callback=self.update_progress
             )
-            self.root.after(0, lambda: messagebox.showinfo("Success", f"Model successfully converted!\nOutput: {out_file}"))
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Conversion Failed", str(e)))
-        finally:
-            self.root.after(0, lambda: self.btn_convert.config(state=tk.NORMAL))
+            err_msg = str(e)
+            print(f"[!] Conversion error: {e}")
+
+        def done_callback(out=out_file, err=err_msg):
+            self.btn_convert.config(state=tk.NORMAL)
+            if err is not None:
+                messagebox.showerror("Conversion Notice", f"Conversion details:\n{err}")
+            else:
+                messagebox.showinfo(
+                    "Success!",
+                    f"Model converted successfully for iOS!\n\nOutput: {out}\n\nClick 'Start Wi-Fi Transfer to iPhone' to send it wirelessly to your iPhone!"
+                )
+
+        self.root.after(0, done_callback)
 
     def run_airtransfer(self):
         os.makedirs("ios_models", exist_ok=True)
@@ -339,7 +394,7 @@ class ConverterGUI:
         threading.Thread(target=lambda: start_airtransfer_server("ios_models", 8080), daemon=True).start()
         messagebox.showinfo(
             "Wi-Fi AirTransfer Server Active",
-            f"Server is running!\n\nOpen Safari or FastLLVC app on your iPhone/iPad and visit:\n{url}\n\nYou can download and import models instantly!"
+            f"Server is running!\n\nOpen Safari or FastLLVC app on your iPhone / iPad and access:\n\n👉 {url}\n\nYou can download models directly!"
         )
 
 
@@ -363,4 +418,4 @@ if __name__ == '__main__':
             root.mainloop()
         else:
             print("[!] Tkinter not available, running CLI mode.")
-            convert_pth_to_ios("llvc_models/models/checkpoints/llvc/G_500000.pth", output_dir="ios_models")
+            convert_pth_to_ios("my_adapter/zundamon(sin).pth", output_dir="ios_models")

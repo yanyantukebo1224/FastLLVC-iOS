@@ -26,7 +26,7 @@ struct ModelManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingFilePicker = false
     @State private var showingURLPrompt = false
-    @State private var serverURLString = "http://192.168.0.10:8080/zundamon.torchscript.pt"
+    @State private var serverURLString = "http://192.168.0.10:8080/model.torchscript.pt"
     @State private var isDownloading = false
     @State private var importErrorMessage: String?
     @State private var showingErrorAlert = false
@@ -95,18 +95,18 @@ struct ModelManagerView: View {
                         }
                     }
 
-                    // Option B: File Picker / AirDrop / Files app
+                    // Option B: Native iOS Document Picker
                     Button(action: {
                         showingFilePicker = true
                     }) {
                         HStack {
-                            Image(systemName: "square.and.arrow.down")
+                            Image(systemName: "folder.badge.plus")
                                 .foregroundColor(.blue)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Import from Files / AirDrop / iCloud")
+                                Text("Select File from Files App / iCloud / AirDrop")
                                     .font(.system(size: 15, weight: .medium))
                                     .foregroundColor(.primary)
-                                Text("Select .pt, .pth, .mlmodelc, .mlpackage from Files app")
+                                Text("Pick .pt, .pth, .mlmodelc, or .mlpackage")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -125,33 +125,20 @@ struct ModelManagerView: View {
                     }
                 }
             }
-            .fileImporter(
-                isPresented: $showingFilePicker,
-                allowedContentTypes: [.item, .data, .content, .folder],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let selectedURL = urls.first else { return }
-                    let access = selectedURL.startAccessingSecurityScopedResource()
-                    defer {
-                        if access {
-                            selectedURL.stopAccessingSecurityScopedResource()
-                        }
-                    }
-                    
+            .sheet(isPresented: $showingFilePicker) {
+                #if os(iOS)
+                NativeDocumentPicker { selectedURL in
+                    guard let url = selectedURL else { return }
                     do {
-                        try viewModel.importCustomModel(from: selectedURL)
-                        successMessage = "Successfully imported: \(selectedURL.lastPathComponent)"
+                        try viewModel.importCustomModel(from: url)
+                        successMessage = "Successfully imported: \(url.lastPathComponent)"
                         showingSuccessAlert = true
                     } catch {
                         importErrorMessage = "Failed to import model: \(error.localizedDescription)"
                         showingErrorAlert = true
                     }
-                case .failure(let error):
-                    importErrorMessage = error.localizedDescription
-                    showingErrorAlert = true
                 }
+                #endif
             }
             .alert("Import from PC (Wi-Fi)", isPresented: $showingURLPrompt) {
                 TextField("http://192.168.0.10:8080/model.torchscript.pt", text: $serverURLString)
@@ -160,7 +147,7 @@ struct ModelManagerView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Enter the direct download URL from PC AirTransfer (e.g. http://192.168.x.x:8080/zundamon.torchscript.pt)")
+                Text("Enter the AirTransfer URL from PC (e.g. http://192.168.0.10:8080 or http://192.168.0.10:8080/zundamon.torchscript.pt)")
             }
             .alert("Model Import Error", isPresented: $showingErrorAlert) {
                 Button("OK", role: .cancel) {}
@@ -198,7 +185,7 @@ struct ModelManagerView: View {
 
             guard let localTempURL = localTempURL else { return }
             do {
-                let filename = url.lastPathComponent.isEmpty ? "imported_model.pt" : url.lastPathComponent
+                let filename = url.lastPathComponent.isEmpty ? "imported_model.torchscript.pt" : url.lastPathComponent
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 let destURL = docs.appendingPathComponent(filename)
                 
@@ -225,3 +212,43 @@ struct ModelManagerView: View {
         task.resume()
     }
 }
+
+#if os(iOS)
+// High-Reliability Native iOS UIDocumentPickerViewController
+struct NativeDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL?) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item, .data, .content, .folder], asCopy: true)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL?) -> Void
+
+        init(onPick: @escaping (URL?) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else {
+                onPick(nil)
+                return
+            }
+            onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onPick(nil)
+        }
+    }
+}
+#endif

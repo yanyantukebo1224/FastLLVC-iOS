@@ -8,6 +8,9 @@
 
 import SwiftUI
 import AVFoundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct RecordShareView: View {
     @ObservedObject var viewModel: VoiceConversionViewModel
@@ -96,9 +99,11 @@ struct RecordShareView: View {
                 )
         )
         .sheet(isPresented: $showingShareSheet) {
+            #if os(iOS)
             if let shareURL = recordedURLToShare {
                 ActivityView(activityItems: [shareURL])
             }
+            #endif
         }
     }
 
@@ -125,11 +130,14 @@ struct RecordShareView: View {
     }
 
     private func triggerHaptic() {
+        #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
+        #endif
     }
 }
 
+#if os(iOS)
 // iOS Native Share Sheet UIViewControllerRepresentable
 struct ActivityView: UIViewControllerRepresentable {
     let activityItems: [Any]
@@ -145,3 +153,4 @@ struct ActivityView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
+#endif

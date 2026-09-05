@@ -3,13 +3,8 @@ name: Build FastLLVC iOS App
 on:
   push:
     branches: [ "main", "master" ]
-    paths:
-      - 'ios/**'
-      - '.github/workflows/build-ios.yml'
   pull_request:
     branches: [ "main", "master" ]
-    paths:
-      - 'ios/**'
   workflow_dispatch:
 
 jobs:
@@ -26,10 +21,10 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode_15.2.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
 
-      - name: Build FastLLVC Swift Package
+      - name: List Xcode Project Schemes
         working-directory: ios
         run: |
-          swift build -v
+          xcodebuild -list -project FastLLVC.xcodeproj
 
       - name: Build iOS App with xcodebuild (Release)
         working-directory: ios
@@ -38,25 +33,23 @@ jobs:
             -project FastLLVC.xcodeproj \
             -scheme FastLLVC \
             -configuration Release \
-            -destination "generic/platform=iOS" \
+            -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            BUILD_DIR="build"
+            BUILD_DIR="$(pwd)/build"
 
       - name: Package App Bundle
         working-directory: ios
         run: |
           mkdir -p dist
-          if [ -d "build/Release-iphoneos/FastLLVC.app" ]; then
-            cd build/Release-iphoneos
-            zip -r ../../dist/FastLLVC-iOS-Release.zip FastLLVC.app
-            cd ../..
-          elif [ -d "build/Release/FastLLVC.app" ]; then
-            cd build/Release
-            zip -r ../../dist/FastLLVC-iOS-Release.zip FastLLVC.app
-            cd ../..
-          fi
+          find build -name "FastLLVC.app" -type d | while read app_path; do
+            echo "Found app at: $app_path"
+            app_dir=$(dirname "$app_path")
+            app_name=$(basename "$app_path")
+            (cd "$app_dir" && zip -r "../../dist/FastLLVC-iOS-Release.zip" "$app_name")
+            break
+          done
 
       - name: Upload FastLLVC iOS App Artifact
         uses: actions/upload-artifact@v4

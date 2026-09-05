@@ -7,7 +7,11 @@
 //
 
 import SwiftUI
+import CoreML
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ModelItem: Identifiable, Hashable {
     let id = UUID()
@@ -80,7 +84,9 @@ struct ModelManagerView: View {
                 }
             }
             .navigationTitle("Voice Model Manager")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

@@ -35,7 +35,6 @@ public final class PitchShifterDSP {
         let pitchRatio = pow(2.0, semitones / 12.0)
         let rate = pitchRatio - 1.0
         let bufLen = Float(maxDelay)
-        let halfWindow = windowSize * 0.5
         
         for i in 0..<audio.count {
             let inSample = audio[i]

@@ -7,6 +7,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct SettingsSheetView: View {
     @ObservedObject var viewModel: VoiceConversionViewModel
@@ -153,7 +156,9 @@ struct SettingsSheetView: View {
                 }
             }
             .navigationTitle("Audio & FX Settings")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

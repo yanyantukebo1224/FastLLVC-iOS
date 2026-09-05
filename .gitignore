@@ -6,6 +6,15 @@ venv/
 venv_cpu/
 *.log
 
+# Node / Electron
+node_modules/
+FastLLVC_MultiStudio/
+FastLLVC_Studio_Portable/
+FastLLVC_Studio_Standalone/
+github_release/
+build/
+dist/
+
 # IDE & Editor
 .vscode/
 .idea/

@@ -7,6 +7,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct PitchControlView: View {
     @Binding var pitchSemitones: Float
@@ -136,7 +139,9 @@ struct PitchControlView: View {
     }
 
     private func triggerHaptic() {
+        #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
+        #endif
     }
 }

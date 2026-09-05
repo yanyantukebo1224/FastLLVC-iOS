@@ -8,6 +8,10 @@
 
 import SwiftUI
 import Combine
+import CoreML
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ContentView: View {
     @ObservedObject var viewModel: VoiceConversionViewModel
@@ -113,7 +117,9 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Fast-LLVC Studio")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { showingModelManager = true }) {
@@ -235,8 +241,10 @@ struct ContentView: View {
     }
 
     private func triggerHaptic(heavy: Bool = false) {
+        #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: heavy ? .heavy : .medium)
         generator.impactOccurred()
+        #endif
     }
 }
 

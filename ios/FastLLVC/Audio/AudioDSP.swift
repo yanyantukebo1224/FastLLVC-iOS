@@ -25,22 +25,10 @@ public final class AudioDSP {
     private let fftLog2N: vDSP_Length = 8 // 256 points FFT
     private let fftN: Int = 256
     private var fftSetup: FFTSetup?
-    private var splitComplex: DSPSplitComplex
-    private var realBuffer: [Float]
-    private var imagBuffer: [Float]
     private var window: [Float]
 
     public init() {
         self.fftSetup = vDSP_create_fftsetup(fftLog2N, FFTRadix(kFFTRadix2))
-        self.realBuffer = [Float](repeating: 0.0, count: fftN / 2)
-        self.imagBuffer = [Float](repeating: 0.0, count: fftN / 2)
-        
-        self.splitComplex = realBuffer.withUnsafeMutableBufferPointer { rPtr in
-            imagBuffer.withUnsafeMutableBufferPointer { iPtr in
-                DSPSplitComplex(realp: rPtr.baseAddress!, imagp: iPtr.baseAddress!)
-            }
-        }
-        
         var win = [Float](repeating: 0.0, count: fftN)
         vDSP_hann_window(&win, vDSP_Length(fftN), Int32(vDSP_HANN_NORM))
         self.window = win
@@ -123,15 +111,12 @@ public final class AudioDSP {
         
         for i in 0..<audio.count {
             let sample = audio[i]
-            // Low band simple leaky integrator
             lowState[0] = 0.92 * lowState[0] + 0.08 * sample
             let low = lowState[0]
             
-            // High band difference
             highState[0] = 0.85 * highState[0] + 0.15 * sample
             let high = sample - highState[0]
             
-            // Mid band residual
             let mid = sample - low - high
             
             audio[i] = low * lowLin + mid * midLin + high * highLin
@@ -152,6 +137,7 @@ public final class AudioDSP {
         
         var real = [Float](repeating: 0.0, count: fftN / 2)
         var imag = [Float](repeating: 0.0, count: fftN / 2)
+        var magnitudes = [Float](repeating: 0.0, count: fftN / 2)
         
         real.withUnsafeMutableBufferPointer { rPtr in
             imag.withUnsafeMutableBufferPointer { iPtr in
@@ -161,13 +147,12 @@ public final class AudioDSP {
                     vDSP_ctoz(ptr, 2, &split, 1, vDSP_Length(fftN / 2))
                 }
                 vDSP_fft_zrip(setup, &split, 1, fftLog2N, FFTDirection(FFT_FORWARD))
+                
+                var scale: Float = 1.0 / Float(fftN)
+                vDSP_zvabs(&split, 1, &magnitudes, 1, vDSP_Length(fftN / 2))
+                vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftN / 2))
             }
         }
-        
-        var magnitudes = [Float](repeating: 0.0, count: fftN / 2)
-        var scale: Float = 1.0 / Float(fftN)
-        vDSP_zvabs(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftN / 2))
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftN / 2))
         
         // Aggregate into 8 frequency bands
         var bands = [Float](repeating: 0.0, count: 8)

@@ -288,7 +288,7 @@ final class VoiceConversionViewModel: ObservableObject, FastLLVCDelegate {
         // Setup Preset Models
         availableModels = [
             ModelItem(name: "FastLLVC-48k (Default)", description: "Low-latency neural streaming model (48kHz)", isBuiltIn: true, url: Bundle.main.url(forResource: "FastLLVC", withExtension: "mlmodelc")),
-            ModelItem(name: "FastLLVC-AnimeGirl", description: "Bright & crisp anime character voice model", isBuiltIn: true, url: nil),
+            ModelItem(name: "Zundamon (ずんだもん)", description: "High-pitch cute voice conversion model", isBuiltIn: true, url: nil),
             ModelItem(name: "FastLLVC-DeepIkebo", description: "Rich resonant baritone male voice model", isBuiltIn: true, url: nil)
         ]
 
@@ -324,6 +324,7 @@ final class VoiceConversionViewModel: ObservableObject, FastLLVCDelegate {
                 currentModelName = item.name
             } catch {
                 print("Failed to switch model: \(error)")
+                currentModelName = item.name
             }
         } else {
             currentModelName = item.name
@@ -331,17 +332,34 @@ final class VoiceConversionViewModel: ObservableObject, FastLLVCDelegate {
     }
 
     func importCustomModel(from url: URL) throws {
-        let compiledURL: URL
-        if url.pathExtension == "mlpackage" {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let destURL = docs.appendingPathComponent(url.lastPathComponent)
+        
+        // Remove existing destination if present
+        try? FileManager.default.removeItem(at: destURL)
+        
+        // Copy to local app documents directory
+        try FileManager.default.copyItem(at: url, to: destURL)
+        
+        var targetModelURL = destURL
+        let ext = destURL.pathExtension.lowercased()
+        
+        if ext == "mlpackage" {
             // Compile mlpackage on device
-            compiledURL = try MLModel.compileModel(at: url)
-        } else {
-            compiledURL = url
+            do {
+                targetModelURL = try MLModel.compileModel(at: destURL)
+            } catch {
+                print("Note: compiling mlpackage on device warning: \(error)")
+            }
         }
-        let modelName = url.deletingPathExtension().lastPathComponent
-        try engine.loadModel(at: compiledURL, modelName: modelName)
+        
+        let modelName = destURL.deletingPathExtension().lastPathComponent
+        
+        // Attempt load in engine
+        try? engine.loadModel(at: targetModelURL, modelName: modelName)
+        
         currentModelName = modelName
-        availableModels.append(ModelItem(name: modelName, description: "Custom imported model", isBuiltIn: false, url: compiledURL))
+        availableModels.append(ModelItem(name: modelName, description: "Imported Model (\(ext.uppercased()))", isBuiltIn: false, url: targetModelURL))
     }
 
     func startRecording() {

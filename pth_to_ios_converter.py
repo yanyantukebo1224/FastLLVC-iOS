@@ -4,9 +4,11 @@ Author: Pop-chan & Antigravity
 """
 
 import os
+import re
 import sys
 import json
 import socket
+import urllib.parse
 import argparse
 import http.server
 import socketserver
@@ -23,6 +25,13 @@ except ImportError:
 
 from infer_adapter import load_model_with_adapter
 from model import Net
+
+
+def sanitize_filename(filename: str) -> str:
+    # Replace parentheses, spaces and special chars with underscores
+    clean = re.sub(r'[\(\)\s\[\]\{\}\+\,\;\:]', '_', filename)
+    clean = re.sub(r'_+', '_', clean).strip('_')
+    return clean
 
 
 class StreamingLLVCWrapper(nn.Module):
@@ -71,10 +80,11 @@ def convert_pth_to_ios(
     progress_callback = None
 ):
     os.makedirs(output_dir, exist_ok=True)
-    base_name = os.path.splitext(os.path.basename(checkpoint_path))[0]
+    raw_name = os.path.splitext(os.path.basename(checkpoint_path))[0]
+    base_name = sanitize_filename(raw_name)
     
     if progress_callback:
-        progress_callback(10, f"Loading model weights: {base_name}...")
+        progress_callback(10, f"Loading weights: {base_name}...")
     print(f"[*] Loading model: {checkpoint_path}")
 
     # Auto find config if not specified
@@ -90,7 +100,7 @@ def convert_pth_to_ios(
                 break
 
     if progress_callback:
-        progress_callback(30, "Merging adapters and preparing neural layers...")
+        progress_callback(30, "Merging layers and building network...")
 
     model, sr = load_model_with_adapter(
         checkpoint_path, config_path, adapter_path, merge=True, device="cpu"
@@ -102,7 +112,7 @@ def convert_pth_to_ios(
     wrapper.eval()
 
     if progress_callback:
-        progress_callback(50, "Tracing neural graph for mobile acceleration...")
+        progress_callback(50, "Tracing TorchScript graph...")
 
     enc_buf, dec_buf, out_buf = model.init_buffers(1, torch.device("cpu"))
     if hasattr(model, 'convnet_pre'):
@@ -126,12 +136,12 @@ def convert_pth_to_ios(
         traced_model = torch.jit.trace(wrapper, example_inputs)
         _ = traced_model(*example_inputs)
 
-    # Save TorchScript (.torchscript.pt)
+    # Save TorchScript (.torchscript.pt) with URL-safe filename
     ts_path = os.path.join(output_dir, f"{base_name}.torchscript.pt")
     traced_model.save(ts_path)
     print(f"[+] Saved TorchScript model to: {ts_path}")
 
-    # Also save raw mobile .pth
+    # Also save mobile .pt
     mobile_pth_path = os.path.join(output_dir, f"{base_name}.pt")
     torch.save({
         'model': model.state_dict(),
@@ -140,7 +150,7 @@ def convert_pth_to_ios(
         'config': config_path
     }, mobile_pth_path)
 
-    # CoreML Export Attempt (if on macOS or full coremltools is working)
+    # CoreML Export Attempt
     mlpackage_path = os.path.join(output_dir, f"{base_name}.mlpackage")
     coreml_success = False
     try:
@@ -169,10 +179,9 @@ def convert_pth_to_ios(
         print(f"[+] Saved Core ML model to: {mlpackage_path}")
         coreml_success = True
     except Exception as ex:
-        print(f"[*] CoreML conversion skipped/unavailable on Windows: {ex}")
-        print(f"[+] TorchScript model ready for iOS importing: {ts_path}")
+        print(f"[*] CoreML conversion skipped on Windows: {ex}")
 
-    # Save JSON metadata for mobile AirTransfer
+    # Save metadata JSON
     meta_path = os.path.join(output_dir, f"{base_name}.json")
     meta_info = {
         "model_name": base_name,
@@ -189,59 +198,117 @@ def convert_pth_to_ios(
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta_info, f, indent=2)
 
-    # Generate HTML Index for Mobile Web Browser / AirTransfer
+    # Regenerate Mobile-friendly AirTransfer Web Page
+    local_ip = get_local_ip()
     html_path = os.path.join(output_dir, "index.html")
+    all_files = [f for f in os.listdir(output_dir) if f.endswith(('.pt', '.pth', '.json', '.mlpackage'))]
+    
+    file_links_html = ""
+    for f in all_files:
+        encoded_name = urllib.parse.quote(f)
+        size_mb = os.path.getsize(os.path.join(output_dir, f)) / (1024 * 1024) if os.path.isfile(os.path.join(output_dir, f)) else 0
+        file_links_html += f"""
+        <div class="file-card">
+            <div class="file-info">
+                <span class="file-name">{f}</span>
+                <span class="file-size">{size_mb:.1f} MB</span>
+            </div>
+            <a class="btn" href="/download/{encoded_name}" download="{f}">📥 Download to iPhone / iPad</a>
+        </div>
+        """
+
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(f"""<!DOCTYPE html>
 <html>
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Fast-LLVC AirTransfer</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0D1117; color: #E6EDF3; padding: 20px; }}
-        .card {{ background: #161B22; border: 1px solid #30363D; border-radius: 12px; padding: 16px; margin-bottom: 16px; }}
-        h1 {{ font-size: 20px; color: #58A6FF; }}
-        a.btn {{ display: block; background: #238636; color: white; text-align: center; text-decoration: none; padding: 12px; border-radius: 8px; font-weight: bold; margin-top: 8px; }}
-        .file-item {{ margin: 8px 0; }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0D1117; color: #E6EDF3; padding: 20px; line-height: 1.5; }}
+        .header {{ text-align: center; margin-bottom: 24px; padding-top: 10px; }}
+        h1 {{ font-size: 22px; color: #58A6FF; margin-bottom: 6px; }}
+        p.sub {{ font-size: 13px; color: #8B949E; }}
+        .container {{ max-width: 500px; margin: 0 auto; }}
+        .file-card {{ background: #161B22; border: 1px solid #30363D; border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
+        .file-info {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
+        .file-name {{ font-weight: 700; font-size: 16px; color: #F0F6FC; word-break: break-all; }}
+        .file-size {{ font-size: 12px; background: #21262D; padding: 4px 8px; border-radius: 6px; color: #8B949E; }}
+        a.btn {{ display: block; background: #238636; color: white; text-align: center; text-decoration: none; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 600; transition: background 0.2s; }}
+        a.btn:active {{ background: #2EA043; transform: scale(0.98); }}
+        .tips {{ background: #1F242C; border-left: 4px solid #58A6FF; border-radius: 8px; padding: 14px; margin-top: 24px; font-size: 13px; color: #C9D1D9; }}
     </style>
 </head>
 <body>
-    <h1>🚀 Fast-LLVC Model AirTransfer</h1>
-    <div class="card">
-        <h3>Model: {base_name}</h3>
-        <p>Sample Rate: {sr} Hz | Latency: {(chunk_len / sr) * 1000.0:.1f} ms</p>
-        <div class="file-item">
-            <a class="btn" href="{os.path.basename(ts_path)}">📲 Download {os.path.basename(ts_path)}</a>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Fast-LLVC AirTransfer</h1>
+            <p class="sub">Tap Download below, then open FastLLVC app to import!</p>
         </div>
-        <div class="file-item">
-            <a class="btn" style="background:#1F6FEB;" href="{os.path.basename(mobile_pth_path)}">📦 Download {os.path.basename(mobile_pth_path)}</a>
+        {file_links_html}
+        <div class="tips">
+            💡 <strong>How to import:</strong><br>
+            1. Tap <strong>Download</strong> on the model file above.<br>
+            2. When Safari asks, tap <strong>Download</strong> to save it to your Files app.<br>
+            3. Open <strong>Fast-LLVC</strong> app &gt; <strong>Models</strong> &gt; <strong>Import from Files</strong>!
         </div>
     </div>
 </body>
 </html>""")
 
     if progress_callback:
-        progress_callback(100, f"Done! Model ready: {base_name}")
+        progress_callback(100, f"Done! Model: {base_name}")
 
-    return (mlpackage_path if coreml_success else ts_path), meta_path
+    return ts_path, meta_path
+
+
+class AirTransferHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, directory="ios_models", **kwargs):
+        self.serve_dir = os.path.abspath(directory)
+        super().__init__(*args, directory=self.serve_dir, **kwargs)
+
+    def do_GET(self):
+        # Handle custom /download/ URL with forced attachment headers
+        decoded_path = urllib.parse.unquote(self.path)
+        if decoded_path.startswith("/download/"):
+            filename = decoded_path.replace("/download/", "")
+            file_path = os.path.join(self.serve_dir, filename)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(os.path.getsize(file_path)))
+                self.end_headers()
+                with open(file_path, "rb") as f:
+                    self.wfile.write(f.read())
+                return
+            else:
+                self.send_error(404, f"File not found: {filename}")
+                return
+        
+        super().do_GET()
 
 
 def start_airtransfer_server(serve_dir: str = "ios_models", port: int = 8080):
     os.makedirs(serve_dir, exist_ok=True)
     local_ip = get_local_ip()
     
-    class CustomHTTPHandler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=serve_dir, **kwargs)
+    # Pre-generate index.html if not present
+    index_file = os.path.join(serve_dir, "index.html")
+    if not os.path.exists(index_file):
+        with open(index_file, "w", encoding="utf-8") as f:
+            f.write("<h1>Fast-LLVC AirTransfer Ready</h1><p>Convert a model on PC to view it here.</p>")
 
     try:
-        httpd = socketserver.TCPServer(("", port), CustomHTTPHandler)
-        print(f"\n" + "=" * 60)
-        print(f"🚀 Fast-LLVC Wi-Fi AirTransfer Server Running!")
-        print(f"📲 On your iPhone / iPad, open Safari or FastLLVC app and visit:")
+        server = socketserver.ThreadingTCPServer(("0.0.0.0", port), lambda *args: AirTransferHTTPHandler(*args, directory=serve_dir))
+        server.allow_reuse_address = True
+        print("\n" + "=" * 60)
+        print("🚀 Fast-LLVC Wi-Fi AirTransfer Server Running on 0.0.0.0:8080!")
+        print("📲 On your iPhone / iPad Safari, visit:")
         print(f"👉 http://{local_ip}:{port}")
         print("=" * 60 + "\n")
-        httpd.serve_forever()
+        server.serve_forever()
     except Exception as e:
         print(f"[!] Server error: {e}")
 
@@ -378,11 +445,11 @@ class ConverterGUI:
         def done_callback(out=out_file, err=err_msg):
             self.btn_convert.config(state=tk.NORMAL)
             if err is not None:
-                messagebox.showerror("Conversion Notice", f"Conversion details:\n{err}")
+                messagebox.showerror("Conversion Notice", f"Conversion notice:\n{err}")
             else:
                 messagebox.showinfo(
                     "Success!",
-                    f"Model converted successfully for iOS!\n\nOutput: {out}\n\nClick 'Start Wi-Fi Transfer to iPhone' to send it wirelessly to your iPhone!"
+                    f"Model converted successfully!\n\nOutput: {out}\n\nClick 'Start Wi-Fi Transfer to iPhone' and open Safari on your phone to download!"
                 )
 
         self.root.after(0, done_callback)
@@ -394,7 +461,7 @@ class ConverterGUI:
         threading.Thread(target=lambda: start_airtransfer_server("ios_models", 8080), daemon=True).start()
         messagebox.showinfo(
             "Wi-Fi AirTransfer Server Active",
-            f"Server is running!\n\nOpen Safari or FastLLVC app on your iPhone / iPad and access:\n\n👉 {url}\n\nYou can download models directly!"
+            f"Server is running on your Wi-Fi!\n\nOpen Safari on your iPhone / iPad and access:\n\n👉 {url}\n\nTap Download next to the model to download it into Files app!"
         )
 
 

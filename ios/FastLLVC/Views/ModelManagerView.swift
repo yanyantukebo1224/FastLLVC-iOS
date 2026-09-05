@@ -26,10 +26,12 @@ struct ModelManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingFilePicker = false
     @State private var showingURLPrompt = false
-    @State private var serverURLString = "http://192.168.0.10:8080"
+    @State private var serverURLString = "http://192.168.0.10:8080/zundamon.torchscript.pt"
     @State private var isDownloading = false
     @State private var importErrorMessage: String?
     @State private var showingErrorAlert = false
+    @State private var showingSuccessAlert = false
+    @State private var successMessage = ""
 
     var body: some View {
         NavigationView {
@@ -86,14 +88,14 @@ struct ModelManagerView: View {
                                 Text("Import via Wi-Fi from PC")
                                     .font(.system(size: 15, weight: .medium))
                                     .foregroundColor(.primary)
-                                Text("Download converted .mlpackage directly from PC AirTransfer")
+                                Text("Download directly from PC AirTransfer URL")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
                         }
                     }
 
-                    // Option B: File Picker / AirDrop
+                    // Option B: File Picker / AirDrop / Files app
                     Button(action: {
                         showingFilePicker = true
                     }) {
@@ -101,10 +103,10 @@ struct ModelManagerView: View {
                             Image(systemName: "square.and.arrow.down")
                                 .foregroundColor(.blue)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Import Local File (.mlmodelc / .mlpackage)")
+                                Text("Import from Files / AirDrop / iCloud")
                                     .font(.system(size: 15, weight: .medium))
                                     .foregroundColor(.primary)
-                                Text("Select from Files app, iCloud Drive, or AirDrop")
+                                Text("Select .pt, .pth, .mlmodelc, .mlpackage from Files app")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -125,20 +127,26 @@ struct ModelManagerView: View {
             }
             .fileImporter(
                 isPresented: $showingFilePicker,
-                allowedContentTypes: [.item, .folder],
+                allowedContentTypes: [.item, .data, .content, .folder],
                 allowsMultipleSelection: false
             ) { result in
                 switch result {
                 case .success(let urls):
                     guard let selectedURL = urls.first else { return }
-                    if selectedURL.startAccessingSecurityScopedResource() {
-                        defer { selectedURL.stopAccessingSecurityScopedResource() }
-                        do {
-                            try viewModel.importCustomModel(from: selectedURL)
-                        } catch {
-                            importErrorMessage = "Failed to load Core ML model: \(error.localizedDescription)"
-                            showingErrorAlert = true
+                    let access = selectedURL.startAccessingSecurityScopedResource()
+                    defer {
+                        if access {
+                            selectedURL.stopAccessingSecurityScopedResource()
                         }
+                    }
+                    
+                    do {
+                        try viewModel.importCustomModel(from: selectedURL)
+                        successMessage = "Successfully imported: \(selectedURL.lastPathComponent)"
+                        showingSuccessAlert = true
+                    } catch {
+                        importErrorMessage = "Failed to import model: \(error.localizedDescription)"
+                        showingErrorAlert = true
                     }
                 case .failure(let error):
                     importErrorMessage = error.localizedDescription
@@ -146,18 +154,23 @@ struct ModelManagerView: View {
                 }
             }
             .alert("Import from PC (Wi-Fi)", isPresented: $showingURLPrompt) {
-                TextField("http://192.168.x.x:8080", text: $serverURLString)
+                TextField("http://192.168.0.10:8080/model.torchscript.pt", text: $serverURLString)
                 Button("Download & Import") {
                     downloadModelFromPC(urlString: serverURLString)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Enter the Wi-Fi AirTransfer URL displayed on your PC (e.g. from Start_PTH_to_iOS_Converter.bat).")
+                Text("Enter the direct download URL from PC AirTransfer (e.g. http://192.168.x.x:8080/zundamon.torchscript.pt)")
             }
             .alert("Model Import Error", isPresented: $showingErrorAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(importErrorMessage ?? "Unknown error occurred.")
+            }
+            .alert("Model Imported!", isPresented: $showingSuccessAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(successMessage)
             }
         }
     }
@@ -185,14 +198,18 @@ struct ModelManagerView: View {
 
             guard let localTempURL = localTempURL else { return }
             do {
+                let filename = url.lastPathComponent.isEmpty ? "imported_model.pt" : url.lastPathComponent
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let destURL = docs.appendingPathComponent(url.lastPathComponent)
+                let destURL = docs.appendingPathComponent(filename)
+                
                 try? FileManager.default.removeItem(at: destURL)
                 try FileManager.default.copyItem(at: localTempURL, to: destURL)
 
                 DispatchQueue.main.async {
                     do {
                         try viewModel.importCustomModel(from: destURL)
+                        successMessage = "Successfully downloaded & applied: \(filename)"
+                        showingSuccessAlert = true
                     } catch {
                         self.importErrorMessage = "Model initialization failed: \(error.localizedDescription)"
                         self.showingErrorAlert = true

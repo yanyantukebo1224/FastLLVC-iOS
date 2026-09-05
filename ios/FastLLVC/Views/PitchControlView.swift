@@ -50,7 +50,17 @@ struct PitchControlView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Slider(value: $pitchSemitones, in: -12.0...12.0, step: 0.5) {
+                Slider(
+                    value: Binding(
+                        get: { pitchSemitones },
+                        set: { val in
+                            pitchSemitones = val
+                            onChange(val)
+                        }
+                    ),
+                    in: -12.0...12.0,
+                    step: 0.5
+                ) {
                     Text("Pitch")
                 } minimumValueLabel: {
                     Text("-12").font(.caption2).foregroundColor(.secondary)
@@ -58,9 +68,6 @@ struct PitchControlView: View {
                     Text("+12").font(.caption2).foregroundColor(.secondary)
                 }
                 .tint(pitchColor)
-                .onChange(of: pitchSemitones) { val in
-                    onChange(val)
-                }
 
                 Button(action: {
                     triggerHaptic()

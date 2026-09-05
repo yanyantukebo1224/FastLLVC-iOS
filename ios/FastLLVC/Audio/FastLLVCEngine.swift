@@ -290,13 +290,20 @@ public final class FastLLVCEngine {
                 "dec_buf": MLFeatureValue(multiArray: dec),
                 "out_buf": MLFeatureValue(multiArray: out),
                 "convnet_pre_ctx": MLFeatureValue(multiArray: convnet),
-                "prev_front_ctx": MLFeatureValue(prevCtxMLArray)
+                "prev_front_ctx": MLFeatureValue(multiArray: prevCtxMLArray)
             ])
 
             let prediction = try model.prediction(from: featureProvider)
 
             // Extract output audio chunk
-            if let outVal = prediction.featureValue(for: "var_output")?.multiArrayValue ?? prediction.featureValue(for: "output")?.multiArrayValue {
+            var extractedMultiArray: MLMultiArray?
+            if let v = prediction.featureValue(for: "var_output")?.multiArrayValue {
+                extractedMultiArray = v
+            } else if let v = prediction.featureValue(for: "output")?.multiArrayValue {
+                extractedMultiArray = v
+            }
+
+            if let outVal = extractedMultiArray {
                 for i in 0..<min(chunkLength, outVal.count) {
                     output[i] = outVal[i].floatValue
                 }

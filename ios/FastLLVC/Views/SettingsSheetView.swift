@@ -42,10 +42,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%.1fx", viewModel.inputGain))
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $viewModel.inputGain, in: 0.0...3.0, step: 0.1)
-                            .onChange(of: viewModel.inputGain) { val in
-                                viewModel.engine.inputGain = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.inputGain },
+                                set: { val in
+                                    viewModel.inputGain = val
+                                    viewModel.engine.inputGain = val
+                                }
+                            ),
+                            in: 0.0...3.0,
+                            step: 0.1
+                        )
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -55,10 +62,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%.1fx", viewModel.outputGain))
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $viewModel.outputGain, in: 0.0...3.0, step: 0.1)
-                            .onChange(of: viewModel.outputGain) { val in
-                                viewModel.engine.outputGain = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.outputGain },
+                                set: { val in
+                                    viewModel.outputGain = val
+                                    viewModel.engine.outputGain = val
+                                }
+                            ),
+                            in: 0.0...3.0,
+                            step: 0.1
+                        )
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -68,10 +82,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%.0f dB", viewModel.thresholdDB))
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $viewModel.thresholdDB, in: -60.0...(-20.0), step: 1.0)
-                            .onChange(of: viewModel.thresholdDB) { val in
-                                viewModel.engine.thresholdDB = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.thresholdDB },
+                                set: { val in
+                                    viewModel.thresholdDB = val
+                                    viewModel.engine.thresholdDB = val
+                                }
+                            ),
+                            in: -60.0...(-20.0),
+                            step: 1.0
+                        )
                     }
                 }
 
@@ -84,10 +105,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%+.1f dB", viewModel.lowGainDB))
                                 .foregroundColor(viewModel.lowGainDB > 0 ? .blue : .secondary)
                         }
-                        Slider(value: $viewModel.lowGainDB, in: -12.0...12.0, step: 0.5)
-                            .onChange(of: viewModel.lowGainDB) { val in
-                                viewModel.engine.lowGainDB = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.lowGainDB },
+                                set: { val in
+                                    viewModel.lowGainDB = val
+                                    viewModel.engine.lowGainDB = val
+                                }
+                            ),
+                            in: -12.0...12.0,
+                            step: 0.5
+                        )
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -97,10 +125,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%+.1f dB", viewModel.midGainDB))
                                 .foregroundColor(viewModel.midGainDB > 0 ? .green : .secondary)
                         }
-                        Slider(value: $viewModel.midGainDB, in: -12.0...12.0, step: 0.5)
-                            .onChange(of: viewModel.midGainDB) { val in
-                                viewModel.engine.midGainDB = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.midGainDB },
+                                set: { val in
+                                    viewModel.midGainDB = val
+                                    viewModel.engine.midGainDB = val
+                                }
+                            ),
+                            in: -12.0...12.0,
+                            step: 0.5
+                        )
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -110,10 +145,17 @@ struct SettingsSheetView: View {
                             Text(String(format: "%+.1f dB", viewModel.highGainDB))
                                 .foregroundColor(viewModel.highGainDB > 0 ? .purple : .secondary)
                         }
-                        Slider(value: $viewModel.highGainDB, in: -12.0...12.0, step: 0.5)
-                            .onChange(of: viewModel.highGainDB) { val in
-                                viewModel.engine.highGainDB = val
-                            }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.highGainDB },
+                                set: { val in
+                                    viewModel.highGainDB = val
+                                    viewModel.engine.highGainDB = val
+                                }
+                            ),
+                            in: -12.0...12.0,
+                            step: 0.5
+                        )
                     }
 
                     Button("Reset EQ to Flat (0 dB)") {

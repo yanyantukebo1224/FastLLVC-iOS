@@ -11,8 +11,11 @@ on:
 
 jobs:
   build:
-    name: Build iOS Application (Xcode)
+    name: Build iOS Application for Real Device (ARM64)
     runs-on: macos-14
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -23,48 +26,71 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode_15.2.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
 
-      - name: List Xcode Project Schemes
-        working-directory: ios
-        run: |
-          xcodebuild -list -project FastLLVC.xcodeproj
-
-      - name: Build iOS App with xcodebuild (Release)
+      - name: Build for Real iOS Device (arm64 / iphoneos)
         working-directory: ios
         run: |
           xcodebuild clean build \
             -project FastLLVC.xcodeproj \
             -scheme FastLLVC \
             -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            BUILD_DIR="$(pwd)/build_device"
+
+      - name: Build for iOS Simulator (x86_64 / arm64-simulator)
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project FastLLVC.xcodeproj \
+            -scheme FastLLVC \
+            -configuration Release \
+            -sdk iphonesimulator \
             -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            BUILD_DIR="$(pwd)/build"
+            BUILD_DIR="$(pwd)/build_sim"
 
-      - name: Package App Bundle & IPA
+      - name: Package FastLLVC.ipa (Real Device) and Simulator App
         working-directory: ios
         run: |
           mkdir -p dist
-          find build -name "FastLLVC.app" -type d | while read app_path; do
-            echo "Found app at: $app_path"
-            app_dir=$(dirname "$app_path")
-            app_name=$(basename "$app_path")
-            (cd "$app_dir" && zip -r "../../dist/FastLLVC-iOS-Release.zip" "$app_name")
-            
-            # Create standard IPA package
-            mkdir -p /tmp/ipa_temp/Payload
-            cp -r "$app_path" /tmp/ipa_temp/Payload/
-            (cd /tmp/ipa_temp && zip -r "../../dist/FastLLVC.ipa" Payload)
-            rm -rf /tmp/ipa_temp
-            break
-          done
+          
+          # 1. Package Real Device IPA
+          DEVICE_APP=$(find build_device -name "FastLLVC.app" -type d | head -n 1)
+          if [ -n "$DEVICE_APP" ]; then
+            echo "Found Device App: $DEVICE_APP"
+            mkdir -p ipa_root/Payload
+            cp -R "$DEVICE_APP" ipa_root/Payload/
+            (cd ipa_root && zip -r "../../dist/FastLLVC.ipa" Payload)
+            rm -rf ipa_root
+          fi
 
-      - name: Upload FastLLVC iOS App Artifact
+          # 2. Package Simulator App
+          SIM_APP=$(find build_sim -name "FastLLVC.app" -type d | head -n 1)
+          if [ -n "$SIM_APP" ]; then
+            echo "Found Simulator App: $SIM_APP"
+            sim_dir=$(dirname "$SIM_APP")
+            (cd "$sim_dir" && zip -r "../../dist/FastLLVC-Simulator.zip" FastLLVC.app)
+          fi
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: FastLLVC-iOS-Release
           path: |
-            ios/dist/FastLLVC-iOS-Release.zip
             ios/dist/FastLLVC.ipa
+            ios/dist/FastLLVC-Simulator.zip
           retention-days: 14
-          if-no-files-found: warn
+
+      - name: Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.0.0 ios/dist/FastLLVC.ipa ios/dist/FastLLVC-Simulator.zip --clobber || \
+          gh release create v1.0.0 ios/dist/FastLLVC.ipa ios/dist/FastLLVC-Simulator.zip --title "Fast-LLVC iOS v1.0.0" --notes "Fast-LLVC for iOS (iOS 17 ~ iOS 27+ Real Device ARM64 & Simulator)" || true

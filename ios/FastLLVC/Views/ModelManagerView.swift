@@ -2,7 +2,7 @@
 //  ModelManagerView.swift
 //  FastLLVC
 //
-//  Core ML Model Management & Custom Model Importer
+//  Core ML Model Management, Custom Model Importer & Wi-Fi PC AirTransfer
 //  Created by Pop-chan & Antigravity
 //
 
@@ -25,6 +25,9 @@ struct ModelManagerView: View {
     @ObservedObject var viewModel: VoiceConversionViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showingFilePicker = false
+    @State private var showingURLPrompt = false
+    @State private var serverURLString = "http://192.168.0.10:8080"
+    @State private var isDownloading = false
     @State private var importErrorMessage: String?
     @State private var showingErrorAlert = false
 
@@ -71,16 +74,42 @@ struct ModelManagerView: View {
                     }
                 }
 
-                Section(header: Text("Import Custom Model")) {
+                Section(header: Text("Import Model from PC")) {
+                    // Option A: Wi-Fi AirTransfer
+                    Button(action: {
+                        showingURLPrompt = true
+                    }) {
+                        HStack {
+                            Image(systemName: "wifi")
+                                .foregroundColor(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Import via Wi-Fi from PC")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.primary)
+                                Text("Download converted .mlpackage directly from PC AirTransfer")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    // Option B: File Picker / AirDrop
                     Button(action: {
                         showingFilePicker = true
                     }) {
-                        Label("Import .mlmodelc / .mlpackage", systemImage: "square.and.arrow.down")
-                            .font(.system(size: 15, weight: .medium))
+                        HStack {
+                            Image(systemName: "square.and.arrow.down")
+                                .foregroundColor(.blue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Import Local File (.mlmodelc / .mlpackage)")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.primary)
+                                Text("Select from Files app, iCloud Drive, or AirDrop")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
-                    Text("You can export custom Fast-LLVC voice models from Python using export_coreml.py and transfer via AirDrop or Files.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("Voice Model Manager")
@@ -116,11 +145,66 @@ struct ModelManagerView: View {
                     showingErrorAlert = true
                 }
             }
+            .alert("Import from PC (Wi-Fi)", isPresented: $showingURLPrompt) {
+                TextField("http://192.168.x.x:8080", text: $serverURLString)
+                Button("Download & Import") {
+                    downloadModelFromPC(urlString: serverURLString)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Enter the Wi-Fi AirTransfer URL displayed on your PC (e.g. from Start_PTH_to_iOS_Converter.bat).")
+            }
             .alert("Model Import Error", isPresented: $showingErrorAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(importErrorMessage ?? "Unknown error occurred.")
             }
         }
+    }
+
+    private func downloadModelFromPC(urlString: String) {
+        guard let url = URL(string: urlString) else {
+            importErrorMessage = "Invalid URL format."
+            showingErrorAlert = true
+            return
+        }
+
+        isDownloading = true
+        let task = URLSession.shared.downloadTask(with: url) { localTempURL, response, error in
+            DispatchQueue.main.async {
+                self.isDownloading = false
+            }
+
+            if let error = error {
+                DispatchQueue.main.async {
+                    self.importErrorMessage = "Download failed: \(error.localizedDescription)"
+                    self.showingErrorAlert = true
+                }
+                return
+            }
+
+            guard let localTempURL = localTempURL else { return }
+            do {
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let destURL = docs.appendingPathComponent(url.lastPathComponent)
+                try? FileManager.default.removeItem(at: destURL)
+                try FileManager.default.copyItem(at: localTempURL, to: destURL)
+
+                DispatchQueue.main.async {
+                    do {
+                        try viewModel.importCustomModel(from: destURL)
+                    } catch {
+                        self.importErrorMessage = "Model initialization failed: \(error.localizedDescription)"
+                        self.showingErrorAlert = true
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.importErrorMessage = "Failed to save downloaded model: \(error.localizedDescription)"
+                    self.showingErrorAlert = true
+                }
+            }
+        }
+        task.resume()
     }
 }

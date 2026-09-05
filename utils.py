@@ -4,12 +4,17 @@ import os
 import json
 import torch
 import glob
-import auraloss
-import librosa
 import numpy as np
 import torch.nn.functional as F
-from torchaudio.transforms import MFCC
-from mel_processing import mel_spectrogram_torch
+
+try:
+    import auraloss
+    import librosa
+    from torchaudio.transforms import MFCC
+    from mel_processing import mel_spectrogram_torch
+except ImportError:
+    pass
+
 
 
 class Params():

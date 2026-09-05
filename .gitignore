@@ -1,4 +1,35 @@
-.vscode
-*__pycache__*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+venv_cpu/
+*.log
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+
+# Xcode & Swift
+ios/build/
+ios/.build/
+ios/dist/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcuserstate
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+
+# Datasets & Heavy Weights
 f_8312_ls360/*
 LibriSpeech/*
+dataset/
+payload.tar.gz
+converted_out/
+converted_merged/
+converted_base/
+converted_adapter/
+experiments/
+yonezu/

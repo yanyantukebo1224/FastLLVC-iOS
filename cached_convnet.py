@@ -120,16 +120,26 @@ class CachedConvNet(nn.Module):
                     dropout=dropout,
                     use_2d=use_2d))
 
-    def init_ctx_buf(self, batch_size, device, height=None):
+    def init_ctx_buf(self, batch_size, device, height=None, dtype=None):
         """
         Initialize context buffer for each layer.
         """
+        if dtype is None:
+            try:
+                dtype = next(self.parameters()).dtype
+            except StopIteration:
+                dtype = torch.float32
+
         if height is not None:
             up_ctx = torch.zeros(
-                (batch_size, self.ctx_height, height, sum(self.buf_lengths))).to(device)
+                (batch_size, self.ctx_height, height, sum(self.buf_lengths)),
+                device=device, dtype=dtype
+            )
         else:
             up_ctx = torch.zeros(
-                (batch_size, self.ctx_height, sum(self.buf_lengths))).to(device)
+                (batch_size, self.ctx_height, sum(self.buf_lengths)),
+                device=device, dtype=dtype
+            )
         return up_ctx
 
     def forward(self, x, ctx):

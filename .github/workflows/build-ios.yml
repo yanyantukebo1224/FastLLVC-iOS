@@ -1,0 +1,67 @@
+name: Build FastLLVC iOS App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - 'ios/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS Application (Xcode)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode_15.2.app || sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Build FastLLVC Swift Package
+        working-directory: ios
+        run: |
+          swift build -v
+
+      - name: Build iOS App with xcodebuild (Release)
+        working-directory: ios
+        run: |
+          xcodebuild clean build \
+            -project FastLLVC.xcodeproj \
+            -scheme FastLLVC \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            BUILD_DIR="build"
+
+      - name: Package App Bundle
+        working-directory: ios
+        run: |
+          mkdir -p dist
+          if [ -d "build/Release-iphoneos/FastLLVC.app" ]; then
+            cd build/Release-iphoneos
+            zip -r ../../dist/FastLLVC-iOS-Release.zip FastLLVC.app
+            cd ../..
+          elif [ -d "build/Release/FastLLVC.app" ]; then
+            cd build/Release
+            zip -r ../../dist/FastLLVC-iOS-Release.zip FastLLVC.app
+            cd ../..
+          fi
+
+      - name: Upload FastLLVC iOS App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastLLVC-iOS-Release
+          path: ios/dist/FastLLVC-iOS-Release.zip
+          retention-days: 14
+          if-no-files-found: warn

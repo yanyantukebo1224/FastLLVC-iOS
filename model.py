@@ -6,8 +6,26 @@ from torch import Tensor
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from speechbrain.lobes.models.transformer.Transformer import PositionalEncoding
 from cached_convnet import CachedConvNet
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, input_size, max_len=2500):
+        super().__init__()
+        self.max_len = max_len
+        pe = torch.zeros(max_len, input_size)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, input_size, 2).float() * (-math.log(10000.0) / input_size)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        return x + self.pe[:, : x.size(1)]
+
 
 
 def mod_pad(x, chunk_size, pad):
@@ -414,11 +432,13 @@ class Net(nn.Module):
                 padding=out_buf_len * L, bias=False),
             nn.Tanh())
 
-    def init_buffers(self, batch_size, device):
-        enc_buf = self.mask_gen.encoder.init_ctx_buf(batch_size, device)
-        dec_buf = self.mask_gen.decoder.init_ctx_buf(batch_size, device)
+    def init_buffers(self, batch_size, device, dtype=None):
+        if dtype is None:
+            dtype = self.in_conv[0].weight.dtype
+        enc_buf = self.mask_gen.encoder.init_ctx_buf(batch_size, device).to(dtype=dtype)
+        dec_buf = self.mask_gen.decoder.init_ctx_buf(batch_size, device).to(dtype=dtype)
         out_buf = torch.zeros(batch_size, self.enc_dim, self.out_buf_len,
-                              device=device)
+                              device=device, dtype=dtype)
         return enc_buf, dec_buf, out_buf
 
     def forward(self, x, init_enc_buf=None, init_dec_buf=None,
@@ -436,7 +456,7 @@ class Net(nn.Module):
             out: [B, n_spk, T]
                 extracted audio with sounds corresponding to the `label`
         """
-        label = torch.zeros(x.shape[0], 1, device=x.device)
+        label = torch.zeros(x.shape[0], 1, device=x.device, dtype=x.dtype)
         mod = 0
         if pad:
             pad_size = (self.L, self.L) if self.lookahead else (0, 0)
@@ -445,7 +465,7 @@ class Net(nn.Module):
         if hasattr(self, 'convnet_pre'):
             if convnet_pre_ctx is None:
                 convnet_pre_ctx = self.convnet_pre.init_ctx_buf(
-                    x.shape[0], x.device)
+                    x.shape[0], x.device, dtype=x.dtype)
 
             convnet_out, convnet_pre_ctx = self.convnet_pre(x, convnet_pre_ctx)
 
@@ -463,7 +483,7 @@ class Net(nn.Module):
                 "Both buffers have to initialized, or " \
                 "both of them have to be None."
             enc_buf, dec_buf, out_buf = self.init_buffers(
-                x.shape[0], x.device)
+                x.shape[0], x.device, dtype=x.dtype)
         else:
             enc_buf, dec_buf, out_buf, = \
                 init_enc_buf, init_dec_buf, init_out_buf

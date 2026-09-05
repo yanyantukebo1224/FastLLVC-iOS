@@ -17,6 +17,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+# Ensure UTF-8 stdout on Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 try:
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
@@ -28,7 +36,6 @@ from model import Net
 
 
 def sanitize_filename(filename: str) -> str:
-    # Replace parentheses, spaces and special chars with underscores
     clean = re.sub(r'[\(\)\s\[\]\{\}\+\,\;\:]', '_', filename)
     clean = re.sub(r'_+', '_', clean).strip('_')
     return clean
@@ -199,9 +206,8 @@ def convert_pth_to_ios(
         json.dump(meta_info, f, indent=2)
 
     # Regenerate Mobile-friendly AirTransfer Web Page
-    local_ip = get_local_ip()
     html_path = os.path.join(output_dir, "index.html")
-    all_files = [f for f in os.listdir(output_dir) if f.endswith(('.pt', '.pth', '.json', '.mlpackage'))]
+    all_files = [f for f in sorted(os.listdir(output_dir)) if f.endswith(('.pt', '.pth', '.json', '.mlpackage'))]
     
     file_links_html = ""
     for f in all_files:
@@ -213,7 +219,7 @@ def convert_pth_to_ios(
                 <span class="file-name">{f}</span>
                 <span class="file-size">{size_mb:.1f} MB</span>
             </div>
-            <a class="btn" href="/download/{encoded_name}" download="{f}">📥 Download to iPhone / iPad</a>
+            <a class="btn" href="/download/{encoded_name}" download="{f}">Download to iPhone / iPad</a>
         </div>
         """
 
@@ -243,12 +249,12 @@ def convert_pth_to_ios(
 <body>
     <div class="container">
         <div class="header">
-            <h1>⚡ Fast-LLVC AirTransfer</h1>
+            <h1>Fast-LLVC AirTransfer</h1>
             <p class="sub">Tap Download below, then open FastLLVC app to import!</p>
         </div>
         {file_links_html}
         <div class="tips">
-            💡 <strong>How to import:</strong><br>
+            <strong>How to import:</strong><br>
             1. Tap <strong>Download</strong> on the model file above.<br>
             2. When Safari asks, tap <strong>Download</strong> to save it to your Files app.<br>
             3. Open <strong>Fast-LLVC</strong> app &gt; <strong>Models</strong> &gt; <strong>Import from Files</strong>!
@@ -269,7 +275,6 @@ class AirTransferHTTPHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=self.serve_dir, **kwargs)
 
     def do_GET(self):
-        # Handle custom /download/ URL with forced attachment headers
         decoded_path = urllib.parse.unquote(self.path)
         if decoded_path.startswith("/download/"):
             filename = decoded_path.replace("/download/", "")
@@ -293,20 +298,14 @@ class AirTransferHTTPHandler(http.server.SimpleHTTPRequestHandler):
 def start_airtransfer_server(serve_dir: str = "ios_models", port: int = 8080):
     os.makedirs(serve_dir, exist_ok=True)
     local_ip = get_local_ip()
-    
-    # Pre-generate index.html if not present
-    index_file = os.path.join(serve_dir, "index.html")
-    if not os.path.exists(index_file):
-        with open(index_file, "w", encoding="utf-8") as f:
-            f.write("<h1>Fast-LLVC AirTransfer Ready</h1><p>Convert a model on PC to view it here.</p>")
 
     try:
         server = socketserver.ThreadingTCPServer(("0.0.0.0", port), lambda *args: AirTransferHTTPHandler(*args, directory=serve_dir))
         server.allow_reuse_address = True
         print("\n" + "=" * 60)
-        print("🚀 Fast-LLVC Wi-Fi AirTransfer Server Running on 0.0.0.0:8080!")
-        print("📲 On your iPhone / iPad Safari, visit:")
-        print(f"👉 http://{local_ip}:{port}")
+        print("[*] Fast-LLVC Wi-Fi AirTransfer Server Running on 0.0.0.0:8080")
+        print(f"[*] On your iPhone / iPad Safari, visit:")
+        print(f"[*] http://{local_ip}:{port}")
         print("=" * 60 + "\n")
         server.serve_forever()
     except Exception as e:
@@ -316,7 +315,7 @@ def start_airtransfer_server(serve_dir: str = "ios_models", port: int = 8080):
 class ConverterGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Fast-LLVC ⚡ .pth to iOS CoreML Converter")
+        self.root.title("Fast-LLVC - .pth to iOS Mobile Converter")
         self.root.geometry("640x480")
         self.root.resizable(False, False)
 
@@ -327,7 +326,7 @@ class ConverterGUI:
         header_frame = tk.Frame(root, bg="#1E222D", height=65)
         header_frame.pack(fill=tk.X)
         
-        lbl_title = tk.Label(header_frame, text="Fast-LLVC: .pth → iOS Mobile Converter", font=("Arial", 14, "bold"), fg="#FFFFFF", bg="#1E222D")
+        lbl_title = tk.Label(header_frame, text="Fast-LLVC: .pth -> iOS Mobile Converter", font=("Arial", 14, "bold"), fg="#FFFFFF", bg="#1E222D")
         lbl_title.pack(pady=8)
         lbl_sub = tk.Label(header_frame, text="Convert PyTorch checkpoints and transfer wirelessly to iPhone / iPad", font=("Arial", 9), fg="#9AA0A6", bg="#1E222D")
         lbl_sub.pack()
@@ -374,7 +373,7 @@ class ConverterGUI:
 
         self.btn_convert = tk.Button(
             btn_frame,
-            text="⚡ Convert for iOS",
+            text="Convert for iOS",
             font=("Arial", 11, "bold"),
             bg="#007AFF",
             fg="white",
@@ -387,7 +386,7 @@ class ConverterGUI:
 
         self.btn_airtransfer = tk.Button(
             btn_frame,
-            text="📡 Start Wi-Fi Transfer to iPhone",
+            text="Start Wi-Fi Transfer to iPhone",
             font=("Arial", 11, "bold"),
             bg="#34C759",
             fg="white",
@@ -461,7 +460,7 @@ class ConverterGUI:
         threading.Thread(target=lambda: start_airtransfer_server("ios_models", 8080), daemon=True).start()
         messagebox.showinfo(
             "Wi-Fi AirTransfer Server Active",
-            f"Server is running on your Wi-Fi!\n\nOpen Safari on your iPhone / iPad and access:\n\n👉 {url}\n\nTap Download next to the model to download it into Files app!"
+            f"Server is running on your Wi-Fi!\n\nOpen Safari on your iPhone / iPad and visit:\n\n{url}\n\nTap Download next to the model to download it into Files app!"
         )
 
 
